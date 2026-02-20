@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>SotoPong 🏓</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #F2F3F5; font-family: 'Segoe UI', system-ui, sans-serif; color: #1A1A1A; }
+
+    @media (min-width: 641px) {
+      .mob { display: none !important; }
+      .desk { display: flex !important; }
+      .desk-table { display: table !important; }
+      .mob-list { display: none !important; }
+      .hide-mob { display: block !important; }
+    }
+    @media (max-width: 640px) {
+      .mob { display: flex !important; }
+      .desk { display: none !important; }
+      .desk-table { display: none !important; }
+      .mob-list { display: block !important; }
+      .hide-mob { display: none !important; }
+      .stats-grid { grid-template-columns: repeat(2,1fr) !important; }
+      .two-col { grid-template-columns: 1fr !important; }
+    }
+    @media (max-width: 700px) {
+      .two-col { grid-template-columns: 1fr !important; }
+      .stats-grid { grid-template-columns: repeat(2,1fr) !important; }
+    }
+
+    .row-hover:hover { background: #FAFBFC; }
+    .del-btn:hover { background: #FFEBEE !important; border-color: #C62828 !important; color: #C62828 !important; }
+    button { font-family: inherit; }
+    input, select { font-family: inherit; }
+    select option { background: #fff; }
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin .8s linear infinite; }
+    @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+    .modal-bg { animation: fadeIn .18s ease; }
+    @keyframes toastIn { from { opacity:0; bottom:72px } to { opacity:1; bottom:88px } }
+    .toast { animation: toastIn .25s ease; }
+
+    /* Offline banner */
+    .offline-bar {
+      background: #C62828; color: #fff; text-align: center;
+      padding: 8px; font-size: 13px; font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+// ── API base — автоматически подхватывает адрес сервера ───────────────────
+const API = window.location.origin;
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API + path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Ошибка сервера" }));
+    throw new Error(err.detail || "Ошибка сервера");
+  }
+  return res.json();
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────
+const AVATAR_COLORS = ["#E8822A","#2E7D32","#1565C0","#6A1B9A","#C62828","#00838F","#AD6800","#006064"];
+
+function getRank(r) {
+  if (r >= 1300) return { label:"Мастер",  color:"#E8822A", bg:"#FEF3E8" };
+  if (r >= 1200) return { label:"Эксперт", color:"#2E7D32", bg:"#E8F5E9" };
+  if (r >= 1100) return { label:"Профи",   color:"#1565C0", bg:"#E3F2FD" };
+  if (r >= 1050) return { label:"Опытный", color:"#6A1B9A", bg:"#F3E5F5" };
+  return               { label:"Новичок", color:"#78909C", bg:"#ECEFF1" };
+}
+
+// ── UI Primitives ──────────────────────────────────────────────────────────
+function Avatar({ name, size = 36 }) {
+  const idx = name.charCodeAt(0) % AVATAR_COLORS.length;
+  const initials = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+  return (
+    <div style={{ width:size, height:size, borderRadius:"50%", background:AVATAR_COLORS[idx],
+      color:"#fff", display:"flex", alignItems:"center", justifyContent:"center",
+      fontSize:size*.38, fontWeight:700, flexShrink:0, userSelect:"none" }}>
+      {initials}
+    </div>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+    </svg>
+  );
+}
+
+function RankPill({ rating }) {
+  const rank = getRank(rating);
+  return (
+    <span style={{ fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20,
+      display:"inline-block", color:rank.color, background:rank.bg }}>
+      {rank.label}
+    </span>
+  );
+}
+
+function DeltaBadge({ d, name, right }) {
+  const green = d > 0;
+  return (
+    <span style={{ fontSize:11, fontWeight:700, display:"flex", alignItems:"center", gap:4,
+      color: green ? "#2E7D32" : "#C62828" }}>
+      {right && <span style={{ color:"#8C9BAB", fontWeight:400 }}>{name}</span>}
+      <span style={{ padding:"2px 7px", borderRadius:20, background: green?"#E8F5E9":"#FFEBEE" }}>
+        {green?"+":""}{d}
+      </span>
+      {!right && <span style={{ color:"#8C9BAB", fontWeight:400 }}>{name}</span>}
+    </span>
+  );
+}
+
+function StatCard({ label, value, icon, accent }) {
+  return (
+    <div style={{ background:accent?"#E8822A":"#fff", borderRadius:12,
+      border:"1px solid #E8EAEC", padding:"14px 18px" }}>
+      <div style={{ fontSize:18, marginBottom:6 }}>{icon}</div>
+      <div style={{ fontSize:24, fontWeight:800, lineHeight:1,
+        color:accent?"#fff":"#1A1A1A" }}>{value}</div>
+      <div style={{ fontSize:11, marginTop:4,
+        color:accent?"rgba(255,255,255,.8)":"#8C9BAB" }}>{label}</div>
+    </div>
+  );
+}
+
+// ── Spinner ────────────────────────────────────────────────────────────────
+function Spinner() {
+  return (
+    <div style={{ display:"flex", justifyContent:"center", padding:80 }}>
+      <div className="spinner" style={{ width:36, height:36, borderRadius:"50%",
+        border:"3px solid #E8EAEC", borderTop:"3px solid #E8822A" }}/>
+    </div>
+  );
+}
+
+// ── Shared styles ──────────────────────────────────────────────────────────
+const card   = { background:"#fff", borderRadius:12, border:"1px solid #E8EAEC", overflow:"hidden" };
+const ch     = { display:"flex", alignItems:"center", justifyContent:"space-between",
+                 padding:"14px 18px", borderBottom:"1px solid #E8EAEC" };
+const th     = { padding:"9px 16px", textAlign:"left", fontSize:11, fontWeight:700,
+                 color:"#8C9BAB", textTransform:"uppercase", letterSpacing:.6,
+                 background:"#FAFBFC", borderBottom:"1px solid #E8EAEC" };
+const td     = { padding:"11px 16px", fontSize:14, verticalAlign:"middle" };
+const delBtn = { background:"none", border:"1px solid #E8EAEC", borderRadius:6,
+                 padding:"5px 7px", cursor:"pointer", color:"#8C9BAB",
+                 display:"flex", alignItems:"center", justifyContent:"center",
+                 transition:"all .15s", lineHeight:0, flexShrink:0 };
+const btnPrimary = { padding:"9px 20px", borderRadius:8, background:"#E8822A",
+                     color:"#fff", border:"none", fontWeight:700, fontSize:14, cursor:"pointer" };
+const btnOutline = { padding:"9px 20px", borderRadius:8, background:"#fff",
+                     color:"#1A1A1A", border:"1px solid #E8EAEC", fontWeight:600,
+                     fontSize:14, cursor:"pointer" };
+const btnDanger  = { padding:"9px 20px", borderRadius:8, background:"#C62828",
+                     color:"#fff", border:"none", fontWeight:700, fontSize:14, cursor:"pointer" };
+const labelSt    = { fontSize:11, fontWeight:700, color:"#8C9BAB",
+                     textTransform:"uppercase", letterSpacing:.7, marginBottom:8 };
+const selectSt   = { width:"100%", padding:"10px 14px", borderRadius:8,
+                     border:"1px solid #E8EAEC", background:"#fff", color:"#1A1A1A",
+                     fontSize:14, outline:"none", cursor:"pointer", marginBottom:10 };
+
+// ── ConfirmModal ───────────────────────────────────────────────────────────
+function ConfirmModal({ text, onConfirm, onCancel, loading }) {
+  return (
+    <div className="modal-bg" onClick={e => e.target===e.currentTarget && onCancel()}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", zIndex:300,
+        display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+      <div style={{ background:"#fff", borderRadius:16, padding:28, maxWidth:380, width:"100%",
+        boxShadow:"0 24px 64px rgba(0,0,0,.22)" }}>
+        <div style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Подтверждение</div>
+        <div style={{ fontSize:14, color:"#8C9BAB", lineHeight:1.55, marginBottom:24 }}>{text}</div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button onClick={onCancel} style={btnOutline} disabled={loading}>Отмена</button>
+          <button onClick={onConfirm} style={{ ...btnDanger, opacity:loading?.5:1 }} disabled={loading}>
+            {loading ? "Удаление..." : "Удалить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── NewMatchModal ──────────────────────────────────────────────────────────
+function NewMatchModal({ players, onClose, onSubmit }) {
+  const [p1, setP1]   = useState("");
+  const [p2, setP2]   = useState("");
+  const [s1, setS1]   = useState("");
+  const [s2, setS2]   = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err,  setErr]  = useState("");
+
+  const p1obj = players.find(p => p.id === parseInt(p1));
+  const p2obj = players.find(p => p.id === parseInt(p2));
+  const valid = p1 && p2 && p1!==p2 && s1!=="" && s2!=="" && parseInt(s1)!==parseInt(s2);
+
+  async function handleSubmit() {
+    if (!valid || busy) return;
+    setBusy(true); setErr("");
+    try {
+      await onSubmit({ p1_name: p1obj.name, p2_name: p2obj.name,
+                       score1: parseInt(s1), score2: parseInt(s2) });
+      onClose();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  const preview = obj => obj ? (
+    <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px",
+      background:"#FAFBFC", borderRadius:8, border:"1px solid #E8EAEC" }}>
+      <Avatar name={obj.name} size={34}/>
+      <div>
+        <div style={{ fontWeight:600, fontSize:14 }}>{obj.name}</div>
+        <div style={{ fontSize:12, color:"#8C9BAB" }}>
+          {obj.rating} очков · {obj.wins}В / {obj.losses}П
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <div className="modal-bg" onClick={e => e.target===e.currentTarget && onClose()}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", zIndex:200,
+        display:"flex", alignItems:"center", justifyContent:"center",
+        padding:"24px 16px", overflowY:"auto" }}>
+      <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:520,
+        boxShadow:"0 24px 64px rgba(0,0,0,.2)" }}>
+
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+          padding:"18px 20px", borderBottom:"1px solid #E8EAEC" }}>
+          <div>
+            <div style={{ fontSize:16, fontWeight:700 }}>Новый матч</div>
+            <div style={{ fontSize:12, color:"#8C9BAB", marginTop:2 }}>Запишите результат игры</div>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer",
+            fontSize:22, color:"#8C9BAB", lineHeight:1, padding:"4px 8px" }}>✕</button>
+        </div>
+
+        <div style={{ padding:"16px 20px", borderBottom:"1px solid #E8EAEC" }}>
+          <div style={labelSt}>Игрок 1</div>
+          <select style={selectSt} value={p1} onChange={e => setP1(e.target.value)}>
+            <option value="">Выбрать игрока...</option>
+            {players.map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
+          </select>
+          {preview(p1obj)}
+        </div>
+
+        <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 20px" }}>
+          <div style={{ flex:1, height:1, background:"#E8EAEC" }}/>
+          <span style={{ fontSize:11, fontWeight:800, color:"#C8D0DA", letterSpacing:3 }}>VS</span>
+          <div style={{ flex:1, height:1, background:"#E8EAEC" }}/>
+        </div>
+
+        <div style={{ padding:"0 20px 16px", borderBottom:"1px solid #E8EAEC" }}>
+          <div style={labelSt}>Игрок 2</div>
+          <select style={selectSt} value={p2} onChange={e => setP2(e.target.value)}>
+            <option value="">Выбрать игрока...</option>
+            {players.map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
+          </select>
+          {preview(p2obj)}
+        </div>
+
+        <div style={{ padding:"16px 20px", borderBottom:"1px solid #E8EAEC" }}>
+          <div style={labelSt}>Счёт</div>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            {[{val:s1, set:setS1, obj:p1obj, label:"Игрок 1"},
+              {val:s2, set:setS2, obj:p2obj, label:"Игрок 2"}].map((item, idx) => (
+              <React.Fragment key={idx}>
+                {idx===1 && <div style={{ fontSize:24, fontWeight:800, color:"#C8D0DA", paddingTop:22 }}>:</div>}
+                <div style={{ flex:1, textAlign:"center" }}>
+                  <div style={{ fontSize:11, color:"#8C9BAB", marginBottom:6 }}>
+                    {item.obj ? item.obj.name.split(" ")[0] : item.label}
+                  </div>
+                  <input type="number" min="0" max="99" value={item.val}
+                    onChange={e => item.set(e.target.value)} placeholder="0"
+                    style={{ padding:12, borderRadius:8, border:"1px solid #E8EAEC",
+                      fontSize:32, fontWeight:800, textAlign:"center",
+                      color:"#1A1A1A", outline:"none", width:"100%" }}/>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        {err && (
+          <div style={{ margin:"0 20px 0", padding:"10px 14px", background:"#FFEBEE",
+            borderRadius:8, color:"#C62828", fontSize:13, fontWeight:500 }}>
+            ⚠ {err}
+          </div>
+        )}
+
+        <div style={{ padding:"16px 20px" }}>
+          <button disabled={!valid || busy} onClick={handleSubmit}
+            style={{ width:"100%", padding:13, borderRadius:9,
+              background: valid&&!busy ? "#E8822A" : "#E8EAEC",
+              color: valid&&!busy ? "#fff" : "#8C9BAB",
+              border:"none", fontWeight:700, fontSize:15,
+              cursor: valid&&!busy ? "pointer" : "not-allowed", transition:"all .15s" }}>
+            {busy ? "Сохраняем..." : "Записать результат"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Leaderboard ────────────────────────────────────────────────────────────
+function Leaderboard({ players, matches }) {
+  if (!players.length) return <Empty text="Нет игроков — добавьте первого во вкладке «Игроки»" />;
+  const recent = matches.slice(0, 5);
+
+  return (
+    <div>
+      <div className="stats-grid"
+        style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+        <StatCard label="Игроков"       value={players.length}                        icon="👤" />
+        <StatCard label="Матчей"        value={matches.length}                        icon="🏓" />
+        <StatCard label="Лидер"         value={players[0].name.split(" ")[0]}         icon="🏆" accent />
+        <StatCard label="Рейтинг топ 1" value={players[0].rating}                    icon="⚡" />
+      </div>
+
+      <div className="two-col"
+        style={{ display:"grid", gridTemplateColumns:"1fr 320px", gap:14, alignItems:"start" }}>
+
+        {/* Table */}
+        <div style={card}>
+          <div style={ch}>
+            <span style={{ fontSize:15, fontWeight:700 }}>Таблица лидеров</span>
+            <span style={{ fontSize:13, color:"#8C9BAB" }}>{players.length} игроков</span>
+          </div>
+
+          <table className="desk-table" style={{ width:"100%", borderCollapse:"collapse" }}>
+            <thead>
+              <tr>{["#","Игрок","Рейтинг","В","П","WR%"].map(h=>(
+                <th key={h} style={th}>{h}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {players.map((p,i) => {
+                const total = p.wins+p.losses;
+                const wr = total ? Math.round(p.wins/total*100) : 0;
+                return (
+                  <tr key={p.id} className="row-hover" style={{ borderBottom:"1px solid #E8EAEC" }}>
+                    <td style={td}>
+                      <span style={{ fontWeight:700, fontSize:i<3?18:13, color:"#8C9BAB" }}>
+                        {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+                      </span>
+                    </td>
+                    <td style={td}>
+                      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                        <Avatar name={p.name} size={32}/>
+                        <div>
+                          <div style={{ fontWeight:600, fontSize:14 }}>{p.name}</div>
+                          <RankPill rating={p.rating}/>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ ...td, fontWeight:800, fontSize:16, color:"#E8822A" }}>{p.rating}</td>
+                    <td style={{ ...td, color:"#2E7D32", fontWeight:600 }}>{p.wins}</td>
+                    <td style={{ ...td, color:"#C62828", fontWeight:600 }}>{p.losses}</td>
+                    <td style={td}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:90 }}>
+                        <div style={{ flex:1, height:5, background:"#F0F0F0", borderRadius:3, overflow:"hidden" }}>
+                          <div style={{ height:"100%", width:wr+"%", borderRadius:3,
+                            background:wr>60?"#2E7D32":wr>40?"#E8822A":"#C62828" }}/>
+                        </div>
+                        <span style={{ fontSize:12, fontWeight:600, color:"#8C9BAB", minWidth:28 }}>{wr}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          <div className="mob-list">
+            {players.map((p,i) => {
+              const total = p.wins+p.losses;
+              const wr = total ? Math.round(p.wins/total*100) : 0;
+              return (
+                <div key={p.id}
+                  style={{ display:"flex", alignItems:"center", gap:12,
+                    padding:"12px 16px", borderBottom:"1px solid #E8EAEC" }}>
+                  <span style={{ fontWeight:700, fontSize:i<3?20:14, minWidth:30, textAlign:"center" }}>
+                    {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+                  </span>
+                  <Avatar name={p.name} size={40}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:15,
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
+                      <RankPill rating={p.rating}/>
+                      <span style={{ fontSize:11, color:"#8C9BAB" }}>{p.wins}В {p.losses}П</span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <div style={{ fontSize:20, fontWeight:800, color:"#E8822A" }}>{p.rating}</div>
+                    <div style={{ fontSize:11, color:"#8C9BAB" }}>WR {wr}%</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Recent matches */}
+        <div style={card}>
+          <div style={ch}>
+            <span style={{ fontSize:15, fontWeight:700 }}>Последние матчи</span>
+          </div>
+          {recent.length === 0 && (
+            <div style={{ padding:"28px 20px", color:"#8C9BAB", fontSize:14, textAlign:"center" }}>
+              Матчей ещё не было
+            </div>
+          )}
+          {recent.map(m => (
+            <div key={m.id} style={{ padding:"14px 20px", borderBottom:"1px solid #E8EAEC" }}>
+              <div style={{ fontSize:11, color:"#8C9BAB", marginBottom:8 }}>{m.date} · {m.time}</div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <Avatar name={m.p1} size={26}/>
+                <span style={{ flex:1, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                  fontWeight:m.winner===m.p1?700:400,
+                  color:m.winner===m.p1?"#2E7D32":"#8C9BAB" }}>{m.p1}</span>
+                <span style={{ fontSize:15, fontWeight:800, color:"#1A1A1A", padding:"0 6px", flexShrink:0 }}>
+                  {m.s1}:{m.s2}
+                </span>
+                <span style={{ flex:1, textAlign:"right", fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                  fontWeight:m.winner===m.p2?700:400,
+                  color:m.winner===m.p2?"#2E7D32":"#8C9BAB" }}>{m.p2}</span>
+                <Avatar name={m.p2} size={26}/>
+              </div>
+              <div style={{ display:"flex", justifyContent:"space-between", marginTop:8 }}>
+                <DeltaBadge d={m.d1} name={m.p1.split(" ")[0]}/>
+                <DeltaBadge d={m.d2} name={m.p2.split(" ")[0]} right/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── History ────────────────────────────────────────────────────────────────
+function History({ matches, onDelete }) {
+  const [confirmId,  setConfirmId]  = useState(null);
+  const [delLoading, setDelLoading] = useState(false);
+
+  if (!matches.length) return <Empty text="Матчей ещё не было. Сыграйте первый!" />;
+
+  async function handleDelete() {
+    setDelLoading(true);
+    await onDelete(confirmId);
+    setConfirmId(null);
+    setDelLoading(false);
+  }
+
+  return (
+    <div style={card}>
+      {confirmId && (
+        <ConfirmModal
+          text="Удалить этот матч? Рейтинг игроков будет откатан."
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmId(null)}
+          loading={delLoading}
+        />
+      )}
+      <div style={ch}>
+        <span style={{ fontSize:15, fontWeight:700 }}>История матчей</span>
+        <span style={{ fontSize:13, color:"#8C9BAB" }}>{matches.length} матчей</span>
+      </div>
+
+      <table className="desk-table" style={{ width:"100%", borderCollapse:"collapse" }}>
+        <thead>
+          <tr>{["Дата","Игрок 1","Счёт","Игрок 2","Δ Рейтинг",""].map(h=>(
+            <th key={h} style={th}>{h}</th>
+          ))}</tr>
+        </thead>
+        <tbody>
+          {matches.map(m => (
+            <tr key={m.id} className="row-hover" style={{ borderBottom:"1px solid #E8EAEC" }}>
+              <td style={td}>
+                <div style={{ fontSize:13, fontWeight:600 }}>{m.date}</div>
+                <div style={{ fontSize:11, color:"#8C9BAB" }}>{m.time}</div>
+              </td>
+              <td style={td}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <Avatar name={m.p1} size={28}/>
+                  <span style={{ fontWeight:m.winner===m.p1?700:400,
+                    color:m.winner===m.p1?"#2E7D32":"#8C9BAB", fontSize:14 }}>{m.p1}</span>
+                </div>
+              </td>
+              <td style={{ ...td, textAlign:"center" }}>
+                <span style={{ display:"inline-block", padding:"3px 14px",
+                  background:"#F5F5F5", borderRadius:20, fontWeight:800, fontSize:14 }}>
+                  {m.s1}:{m.s2}
+                </span>
+              </td>
+              <td style={td}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <Avatar name={m.p2} size={28}/>
+                  <span style={{ fontWeight:m.winner===m.p2?700:400,
+                    color:m.winner===m.p2?"#2E7D32":"#8C9BAB", fontSize:14 }}>{m.p2}</span>
+                </div>
+              </td>
+              <td style={td}>
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+                  <DeltaBadge d={m.d1} name={m.p1.split(" ")[0]}/>
+                  <DeltaBadge d={m.d2} name={m.p2.split(" ")[0]} right/>
+                </div>
+              </td>
+              <td style={{ ...td, textAlign:"right" }}>
+                <button className="del-btn" onClick={() => setConfirmId(m.id)}
+                  style={delBtn} title="Удалить матч"><TrashIcon/></button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="mob-list">
+        {matches.map(m => (
+          <div key={m.id} style={{ padding:"14px 16px", borderBottom:"1px solid #E8EAEC" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <span style={{ fontSize:11, color:"#8C9BAB" }}>{m.date} · {m.time}</span>
+              <button className="del-btn" onClick={() => setConfirmId(m.id)}
+                style={delBtn} title="Удалить матч"><TrashIcon/></button>
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ flex:1, display:"flex", alignItems:"center", gap:8 }}>
+                <Avatar name={m.p1} size={28}/>
+                <span style={{ fontWeight:m.winner===m.p1?700:400,
+                  color:m.winner===m.p1?"#2E7D32":"#8C9BAB", fontSize:14 }}>{m.p1}</span>
+              </div>
+              <span style={{ padding:"4px 12px", background:"#F5F5F5",
+                borderRadius:20, fontWeight:800, fontSize:15, flexShrink:0 }}>{m.s1}:{m.s2}</span>
+              <div style={{ flex:1, display:"flex", justifyContent:"flex-end", alignItems:"center", gap:8 }}>
+                <span style={{ fontWeight:m.winner===m.p2?700:400,
+                  color:m.winner===m.p2?"#2E7D32":"#8C9BAB", fontSize:14 }}>{m.p2}</span>
+                <Avatar name={m.p2} size={28}/>
+              </div>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", marginTop:8 }}>
+              <DeltaBadge d={m.d1} name={m.p1.split(" ")[0]}/>
+              <DeltaBadge d={m.d2} name={m.p2.split(" ")[0]} right/>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Players Page ───────────────────────────────────────────────────────────
+function PlayersPage({ players, onAdd, onDelete }) {
+  const [confirmId,  setConfirmId]  = useState(null);
+  const [delLoading, setDelLoading] = useState(false);
+  const [name,  setName]  = useState("");
+  const [busy,  setBusy]  = useState(false);
+  const [err,   setErr]   = useState("");
+
+  async function handleAdd() {
+    const n = name.trim();
+    if (!n) return;
+    setBusy(true); setErr("");
+    try { await onAdd(n); setName(""); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function handleDelete() {
+    setDelLoading(true);
+    await onDelete(confirmId);
+    setConfirmId(null);
+    setDelLoading(false);
+  }
+
+  return (
+    <div>
+      {confirmId && (
+        <ConfirmModal
+          text="Удалить игрока? Все его матчи и изменения рейтинга соперников тоже будут откатаны."
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmId(null)}
+          loading={delLoading}
+        />
+      )}
+
+      <div style={{ ...card, marginBottom:14 }}>
+        <div style={ch}><span style={{ fontSize:15, fontWeight:700 }}>Добавить игрока</span></div>
+        <div style={{ padding:"14px 16px" }}>
+          <div style={{ display:"flex", gap:10 }}>
+            <input placeholder="Имя игрока..." value={name}
+              onChange={e => setName(e.target.value)}
+              onKeyDown={e => e.key==="Enter" && handleAdd()}
+              style={{ flex:1, padding:"10px 14px", borderRadius:8,
+                border:"1px solid #E8EAEC", fontSize:14, color:"#1A1A1A",
+                outline:"none", minWidth:0 }}/>
+            <button onClick={handleAdd} disabled={busy}
+              style={{ ...btnPrimary, opacity:busy?.6:1, flexShrink:0 }}>
+              {busy ? "..." : "Добавить"}
+            </button>
+          </div>
+          {err && (
+            <div style={{ marginTop:10, padding:"8px 14px", background:"#FFEBEE",
+              borderRadius:8, color:"#C62828", fontSize:13 }}>⚠ {err}</div>
+          )}
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={ch}>
+          <span style={{ fontSize:15, fontWeight:700 }}>Все игроки</span>
+          <span style={{ fontSize:13, color:"#8C9BAB" }}>{players.length} человек</span>
+        </div>
+        {players.length === 0 && (
+          <div style={{ padding:"28px 20px", color:"#8C9BAB", fontSize:14, textAlign:"center" }}>Нет игроков</div>
+        )}
+        {players.map((p,i) => {
+          const total = p.wins+p.losses;
+          const wr = total ? Math.round(p.wins/total*100) : 0;
+          return (
+            <div key={p.id} className="row-hover"
+              style={{ display:"flex", alignItems:"center", gap:12,
+                padding:"12px 16px", borderBottom:"1px solid #E8EAEC", flexWrap:"wrap" }}>
+              <span style={{ fontWeight:700, fontSize:i<3?18:13, color:"#8C9BAB", minWidth:26, textAlign:"center" }}>
+                {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+              </span>
+              <Avatar name={p.name} size={36}/>
+              <div style={{ flex:1, minWidth:80 }}>
+                <div style={{ fontWeight:700, fontSize:14 }}>{p.name}</div>
+                <RankPill rating={p.rating}/>
+              </div>
+              <div style={{ textAlign:"center", minWidth:52 }}>
+                <div style={{ fontSize:18, fontWeight:800, color:"#E8822A" }}>{p.rating}</div>
+                <div style={{ fontSize:10, color:"#8C9BAB", textTransform:"uppercase" }}>рейтинг</div>
+              </div>
+              <div style={{ textAlign:"center", minWidth:44 }}>
+                <div style={{ fontSize:15, fontWeight:700, color:"#2E7D32" }}>{p.wins}</div>
+                <div style={{ fontSize:10, color:"#8C9BAB", textTransform:"uppercase" }}>побед</div>
+              </div>
+              <div style={{ textAlign:"center", minWidth:52 }}>
+                <div style={{ fontSize:15, fontWeight:700, color:"#C62828" }}>{p.losses}</div>
+                <div style={{ fontSize:10, color:"#8C9BAB", textTransform:"uppercase" }}>пораж.</div>
+              </div>
+              <div style={{ textAlign:"center", minWidth:44 }}>
+                <div style={{ fontSize:15, fontWeight:700 }}>{wr}%</div>
+                <div style={{ fontSize:10, color:"#8C9BAB", textTransform:"uppercase" }}>WR</div>
+              </div>
+              <button className="del-btn" onClick={() => setConfirmId(p.id)}
+                style={delBtn} title="Удалить игрока"><TrashIcon/></button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Empty({ text }) {
+  return (
+    <div style={{ textAlign:"center", padding:"72px 20px" }}>
+      <div style={{ fontSize:52 }}>🏓</div>
+      <div style={{ fontSize:15, color:"#8C9BAB", marginTop:12, lineHeight:1.5 }}>{text}</div>
+    </div>
+  );
+}
+
+// ── App ────────────────────────────────────────────────────────────────────
+function App() {
+  const [players,   setPlayers]   = useState([]);
+  const [matches,   setMatches]   = useState([]);
+  const [view,      setView]      = useState("leaderboard");
+  const [showMatch, setShowMatch] = useState(false);
+  const [toast,     setToast]     = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [offline,   setOffline]   = useState(false);
+
+  async function loadAll() {
+    try {
+      const [p, m] = await Promise.all([
+        apiFetch("/api/players"),
+        apiFetch("/api/matches"),
+      ]);
+      setPlayers(p); setMatches(m); setOffline(false);
+    } catch {
+      setOffline(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadAll(); }, []);
+
+  // Обновляем данные каждые 15 секунд (для синхронизации между устройствами)
+  useEffect(() => {
+    const t = setInterval(loadAll, 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  function showMsg(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2800);
+  }
+
+  async function addPlayer(name) {
+    const p = await apiFetch("/api/players", {
+      method: "POST", body: JSON.stringify({ name }),
+    });
+    setPlayers(prev => [...prev, p].sort((a,b) => b.rating-a.rating));
+    showMsg(`${name} добавлен!`);
+  }
+
+  async function addMatch(data) {
+    await apiFetch("/api/matches", { method:"POST", body:JSON.stringify(data) });
+    await loadAll();
+    showMsg(`🏓 Матч записан!`);
+  }
+
+  async function deleteMatch(id) {
+    await apiFetch(`/api/matches/${id}`, { method:"DELETE" });
+    await loadAll();
+    showMsg("Матч удалён, рейтинг откатан");
+  }
+
+  async function deletePlayer(id) {
+    const pl = players.find(p => p.id === id);
+    await apiFetch(`/api/players/${id}`, { method:"DELETE" });
+    await loadAll();
+    showMsg(`${pl?.name} удалён`);
+  }
+
+  const NAV = [
+    { id:"leaderboard", label:"Рейтинг", icon:"🏆" },
+    { id:"history",     label:"История", icon:"📋" },
+    { id:"players",     label:"Игроки",  icon:"👤" },
+  ];
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#F2F3F5" }}>
+
+      {offline && (
+        <div className="offline-bar">
+          ⚠ Нет соединения с сервером — данные могут быть устаревшими
+        </div>
+      )}
+
+      {/* Header */}
+      <header style={{ background:"#fff", borderBottom:"1px solid #E8EAEC",
+        position:"sticky", top:0, zIndex:100 }}>
+        <div style={{ maxWidth:1100, margin:"0 auto", padding:"0 16px",
+          display:"flex", alignItems:"center", gap:16, height:56 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
+            <span style={{ fontSize:24 }}>🏓</span>
+            <div>
+              <div style={{ fontSize:16, fontWeight:800, letterSpacing:-0.3 }}>SotoPong</div>
+              <div className="hide-mob" style={{ fontSize:11, color:"#8C9BAB" }}>Рейтинг пинг-понга</div>
+            </div>
+          </div>
+
+          <nav className="desk" style={{ gap:2 }}>
+            {NAV.map(n => (
+              <button key={n.id} onClick={() => setView(n.id)}
+                style={{ padding:"6px 14px", borderRadius:8, border:"none",
+                  background:view===n.id?"#FEF3E8":"transparent",
+                  color:view===n.id?"#E8822A":"#8C9BAB",
+                  fontWeight:view===n.id?600:500,
+                  cursor:"pointer", fontSize:14, transition:"all .15s" }}>
+                {n.label}
+              </button>
+            ))}
+          </nav>
+
+          <div style={{ flex:1 }}/>
+
+          <button className="desk" onClick={() => setShowMatch(true)}
+            style={{ gap:8, padding:"8px 16px", borderRadius:8,
+              background:"#E8822A", color:"#fff", border:"none",
+              fontWeight:700, fontSize:14, cursor:"pointer",
+              whiteSpace:"nowrap", flexShrink:0 }}>
+            + Новый матч
+          </button>
+        </div>
+      </header>
+
+      {/* Main */}
+      <main style={{ maxWidth:1100, margin:"0 auto", padding:"20px 16px 90px" }}>
+        {loading ? <Spinner/> : (
+          <>
+            {view==="leaderboard" && <Leaderboard players={players} matches={matches}/>}
+            {view==="history"     && <History matches={matches} onDelete={deleteMatch}/>}
+            {view==="players"     && <PlayersPage players={players} onAdd={addPlayer} onDelete={deletePlayer}/>}
+          </>
+        )}
+      </main>
+
+      {/* Mobile tab bar */}
+      <nav className="mob" style={{ position:"fixed", bottom:0, left:0, right:0,
+        background:"#fff", borderTop:"1px solid #E8EAEC",
+        zIndex:90, paddingBottom:"env(safe-area-inset-bottom)" }}>
+        {NAV.map(n => (
+          <button key={n.id} onClick={() => setView(n.id)}
+            style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center",
+              justifyContent:"center", padding:"8px 0", background:"none", border:"none",
+              color:view===n.id?"#E8822A":"#8C9BAB", cursor:"pointer", fontSize:11, gap:2 }}>
+            <span style={{ fontSize:20 }}>{n.icon}</span>
+            {n.label}
+          </button>
+        ))}
+        <button onClick={() => setShowMatch(true)}
+          style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center",
+            justifyContent:"center", padding:"8px 0", background:"#E8822A",
+            border:"none", color:"#fff", cursor:"pointer", fontSize:11, fontWeight:700, gap:2 }}>
+          <span style={{ fontSize:22 }}>+</span>
+          Матч
+        </button>
+      </nav>
+
+      {showMatch && (
+        <NewMatchModal players={players} onClose={() => setShowMatch(false)} onSubmit={addMatch}/>
+      )}
+
+      {toast && (
+        <div className="toast"
+          style={{ position:"fixed", bottom:88, left:"50%", transform:"translateX(-50%)",
+            background:"#1A1A1A", color:"#fff", padding:"11px 22px",
+            borderRadius:10, fontWeight:600, fontSize:14, zIndex:999,
+            boxShadow:"0 8px 24px rgba(0,0,0,.18)", whiteSpace:"nowrap" }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
