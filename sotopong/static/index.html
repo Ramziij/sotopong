@@ -211,22 +211,39 @@ function ConfirmModal({ text, onConfirm, onCancel, loading }) {
 
 // ── NewMatchModal ──────────────────────────────────────────────────────────
 function NewMatchModal({ players, onClose, onSubmit, savedP1, savedP2, onSavePlayers }) {
-  const [p1, setP1]   = useState(savedP1 || "");
-  const [p2, setP2]   = useState(savedP2 || "");
+  const [mode, setMode] = useState("1v1");
+  const [p1,  setP1]  = useState(savedP1 || "");
+  const [p1b, setP1b] = useState("");
+  const [p2,  setP2]  = useState(savedP2 || "");
+  const [p2b, setP2b] = useState("");
   const [s1, setS1]   = useState("");
   const [s2, setS2]   = useState("");
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState("");
 
-  const p1obj = players.find(p => p.id === parseInt(p1));
-  const p2obj = players.find(p => p.id === parseInt(p2));
-  const valid = p1 && p2 && p1!==p2 && s1!=="" && s2!=="" && parseInt(s1)!==parseInt(s2);
+  const is2v2 = mode === "2v2";
+
+  const p1obj  = players.find(p => p.id === parseInt(p1));
+  const p1bobj = players.find(p => p.id === parseInt(p1b));
+  const p2obj  = players.find(p => p.id === parseInt(p2));
+  const p2bobj = players.find(p => p.id === parseInt(p2b));
+
+  const allIds1v1 = [p1, p2].filter(Boolean);
+  const allIds2v2 = [p1, p1b, p2, p2b].filter(Boolean);
+  const noDupes1v1 = new Set(allIds1v1).size === allIds1v1.length;
+  const noDupes2v2 = new Set(allIds2v2).size === allIds2v2.length;
+
+  const valid = is2v2
+    ? p1 && p1b && p2 && p2b && noDupes2v2 && s1!=="" && s2!=="" && parseInt(s1)!==parseInt(s2)
+    : p1 && p2 && p1!==p2 && s1!=="" && s2!=="" && parseInt(s1)!==parseInt(s2);
 
   async function handleSubmit() {
     if (!valid || busy) return;
     setBusy(true); setErr("");
     try {
-      await onSubmit({ p1_name: p1obj.name, p2_name: p2obj.name,
+      const p1name = is2v2 ? `${p1obj.name} & ${p1bobj.name}` : p1obj.name;
+      const p2name = is2v2 ? `${p2obj.name} & ${p2bobj.name}` : p2obj.name;
+      await onSubmit({ p1_name: p1name, p2_name: p2name,
                        score1: parseInt(s1), score2: parseInt(s2) });
       onSavePlayers && onSavePlayers(p1, p2);
       onClose();
@@ -236,7 +253,7 @@ function NewMatchModal({ players, onClose, onSubmit, savedP1, savedP2, onSavePla
 
   const preview = obj => obj ? (
     <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 14px",
-      background:"#FAFBFC", borderRadius:8, border:"1px solid #E8EAEC" }}>
+      background:"#FAFBFC", borderRadius:8, border:"1px solid #E8EAEC", marginTop:8 }}>
       <Avatar name={obj.name} size={34}/>
       <div>
         <div style={{ fontWeight:600, fontSize:14 }}>{obj.name}</div>
@@ -247,6 +264,18 @@ function NewMatchModal({ players, onClose, onSubmit, savedP1, savedP2, onSavePla
     </div>
   ) : null;
 
+  // Players excluded from dropdowns to avoid full duplication
+  const usedIds = is2v2 ? [p1, p1b, p2, p2b] : [p1, p2];
+  const availFor = (ownVal) => players.filter(p =>
+    p.id === parseInt(ownVal) || !usedIds.filter(id => id !== ownVal).includes(String(p.id))
+  );
+
+  const teamLabel = (obj1, obj2) => {
+    if (!obj1 && !obj2) return "Команда";
+    if (obj1 && obj2) return `${obj1.name.split(" ")[0]} & ${obj2.name.split(" ")[0]}`;
+    return (obj1 || obj2).name.split(" ")[0];
+  };
+
   return (
     <div className="modal-bg" onClick={e => e.target===e.currentTarget && onClose()}
       style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.45)", zIndex:200,
@@ -255,6 +284,7 @@ function NewMatchModal({ players, onClose, onSubmit, savedP1, savedP2, onSavePla
       <div style={{ background:"#fff", borderRadius:16, width:"100%", maxWidth:520,
         boxShadow:"0 24px 64px rgba(0,0,0,.2)" }}>
 
+        {/* Header */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
           padding:"18px 20px", borderBottom:"1px solid #E8EAEC" }}>
           <div>
@@ -265,40 +295,88 @@ function NewMatchModal({ players, onClose, onSubmit, savedP1, savedP2, onSavePla
             fontSize:22, color:"#8C9BAB", lineHeight:1, padding:"4px 8px" }}>✕</button>
         </div>
 
-        <div style={{ padding:"16px 20px", borderBottom:"1px solid #E8EAEC" }}>
-          <div style={labelSt}>Игрок 1</div>
-          <select style={selectSt} value={p1} onChange={e => setP1(e.target.value)}>
-            <option value="">Выбрать игрока...</option>
-            {players.map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
-          </select>
-          {preview(p1obj)}
+        {/* Mode slider */}
+        <div style={{ padding:"14px 20px", borderBottom:"1px solid #E8EAEC",
+          display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:12, fontWeight:700, color:"#8C9BAB", textTransform:"uppercase",
+            letterSpacing:.7, marginRight:4 }}>Формат</span>
+          <div style={{ display:"flex", background:"#F2F3F5", borderRadius:10, padding:3, gap:3 }}>
+            {["1v1","2v2"].map(m => (
+              <button key={m} onClick={() => { setMode(m); setP1b(""); setP2b(""); }}
+                style={{ padding:"6px 20px", borderRadius:8, border:"none", cursor:"pointer",
+                  fontWeight:700, fontSize:14, transition:"all .15s",
+                  background: mode===m ? "#fff" : "transparent",
+                  color: mode===m ? "#E8822A" : "#8C9BAB",
+                  boxShadow: mode===m ? "0 1px 4px rgba(0,0,0,.12)" : "none" }}>
+                {m==="1v1" ? "👤 1 на 1" : "👥 2 на 2"}
+              </button>
+            ))}
+          </div>
         </div>
 
+        {/* Team 1 */}
+        <div style={{ padding:"16px 20px", borderBottom:"1px solid #E8EAEC" }}>
+          <div style={labelSt}>{is2v2 ? "Команда 1" : "Игрок 1"}</div>
+          <select style={selectSt} value={p1} onChange={e => setP1(e.target.value)}>
+            <option value="">Выбрать игрока...</option>
+            {availFor(p1).map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
+          </select>
+          {!is2v2 && preview(p1obj)}
+          {is2v2 && (
+            <>
+              {preview(p1obj)}
+              <div style={{ margin:"10px 0 4px", fontSize:11, fontWeight:700, color:"#C8D0DA",
+                textTransform:"uppercase", letterSpacing:.7 }}>+ Партнёр</div>
+              <select style={selectSt} value={p1b} onChange={e => setP1b(e.target.value)}>
+                <option value="">Выбрать партнёра...</option>
+                {availFor(p1b).map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
+              </select>
+              {preview(p1bobj)}
+            </>
+          )}
+        </div>
+
+        {/* VS divider */}
         <div style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 20px" }}>
           <div style={{ flex:1, height:1, background:"#E8EAEC" }}/>
           <span style={{ fontSize:11, fontWeight:800, color:"#C8D0DA", letterSpacing:3 }}>VS</span>
           <div style={{ flex:1, height:1, background:"#E8EAEC" }}/>
         </div>
 
+        {/* Team 2 */}
         <div style={{ padding:"0 20px 16px", borderBottom:"1px solid #E8EAEC" }}>
-          <div style={labelSt}>Игрок 2</div>
+          <div style={labelSt}>{is2v2 ? "Команда 2" : "Игрок 2"}</div>
           <select style={selectSt} value={p2} onChange={e => setP2(e.target.value)}>
             <option value="">Выбрать игрока...</option>
-            {players.map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
+            {availFor(p2).map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
           </select>
-          {preview(p2obj)}
+          {!is2v2 && preview(p2obj)}
+          {is2v2 && (
+            <>
+              {preview(p2obj)}
+              <div style={{ margin:"10px 0 4px", fontSize:11, fontWeight:700, color:"#C8D0DA",
+                textTransform:"uppercase", letterSpacing:.7 }}>+ Партнёр</div>
+              <select style={selectSt} value={p2b} onChange={e => setP2b(e.target.value)}>
+                <option value="">Выбрать партнёра...</option>
+                {availFor(p2b).map(p => <option key={p.id} value={p.id}>{p.name} — {p.rating} очков</option>)}
+              </select>
+              {preview(p2bobj)}
+            </>
+          )}
         </div>
 
+        {/* Score */}
         <div style={{ padding:"16px 20px", borderBottom:"1px solid #E8EAEC" }}>
           <div style={labelSt}>Счёт</div>
           <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-            {[{val:s1, set:setS1, obj:p1obj, label:"Игрок 1"},
-              {val:s2, set:setS2, obj:p2obj, label:"Игрок 2"}].map((item, idx) => (
+            {[{val:s1, set:setS1, obj:p1obj, obj2:is2v2?p1bobj:null, label:"Команда 1"},
+              {val:s2, set:setS2, obj:p2obj, obj2:is2v2?p2bobj:null, label:"Команда 2"}].map((item, idx) => (
               <React.Fragment key={idx}>
                 {idx===1 && <div style={{ fontSize:24, fontWeight:800, color:"#C8D0DA", paddingTop:22 }}>:</div>}
                 <div style={{ flex:1, textAlign:"center" }}>
-                  <div style={{ fontSize:11, color:"#8C9BAB", marginBottom:6 }}>
-                    {item.obj ? item.obj.name.split(" ")[0] : item.label}
+                  <div style={{ fontSize:11, color:"#8C9BAB", marginBottom:6, whiteSpace:"nowrap",
+                    overflow:"hidden", textOverflow:"ellipsis" }}>
+                    {item.obj ? (is2v2 ? teamLabel(item.obj, item.obj2) : item.obj.name.split(" ")[0]) : item.label}
                   </div>
                   <input type="number" min="0" max="99" value={item.val}
                     onChange={e => item.set(e.target.value)} placeholder="0"
@@ -609,8 +687,8 @@ function History({ matches, onDelete }) {
               </td>
               <td style={td}>
                 <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-                  <DeltaBadge d={m.d1} name={m.p1.split(" ")[0]}/>
-                  <DeltaBadge d={m.d2} name={m.p2.split(" ")[0]} right/>
+                  <DeltaBadge d={m.d1}/>
+                  <DeltaBadge d={m.d2} right/>
                 </div>
               </td>
               <td style={{ ...td, textAlign:"right" }}>
@@ -645,8 +723,8 @@ function History({ matches, onDelete }) {
               </div>
             </div>
             <div style={{ display:"flex", justifyContent:"space-between", marginTop:8 }}>
-              <DeltaBadge d={m.d1} name={m.p1.split(" ")[0]}/>
-              <DeltaBadge d={m.d2} name={m.p2.split(" ")[0]} right/>
+              <DeltaBadge d={m.d1}/>
+              <DeltaBadge d={m.d2} right/>
             </div>
           </div>
         );})}        
