@@ -34,6 +34,8 @@
 
     .row-hover:hover { background: #FAFBFC; }
     .del-btn:hover { background: #FFEBEE !important; border-color: #C62828 !important; color: #C62828 !important; }
+    @media (min-width: 641px) { .desk-flex { display: flex !important; } }
+    @media (max-width: 640px) { .desk-flex { display: none !important; } }
     button { font-family: inherit; }
     input, select { font-family: inherit; }
     select option { background: #fff; }
@@ -83,6 +85,12 @@ function getRank(r) {
   if (r >= 1100) return { label:"Профи",   color:"#1565C0", bg:"#E3F2FD" };
   if (r >= 1050) return { label:"Опытный", color:"#6A1B9A", bg:"#F3E5F5" };
   return               { label:"Новичок", color:"#78909C", bg:"#ECEFF1" };
+}
+
+// ── Normalize match order (alphabetical by player name) ──────────────────
+function normalizeMatch(m) {
+  if (!m || m.p1 <= m.p2) return m;
+  return { ...m, p1:m.p2, p2:m.p1, s1:m.s2, s2:m.s1, d1:m.d2, d2:m.d1 };
 }
 
 // ── UI Primitives ──────────────────────────────────────────────────────────
@@ -202,9 +210,9 @@ function ConfirmModal({ text, onConfirm, onCancel, loading }) {
 }
 
 // ── NewMatchModal ──────────────────────────────────────────────────────────
-function NewMatchModal({ players, onClose, onSubmit }) {
-  const [p1, setP1]   = useState("");
-  const [p2, setP2]   = useState("");
+function NewMatchModal({ players, onClose, onSubmit, savedP1, savedP2, onSavePlayers }) {
+  const [p1, setP1]   = useState(savedP1 || "");
+  const [p2, setP2]   = useState(savedP2 || "");
   const [s1, setS1]   = useState("");
   const [s2, setS2]   = useState("");
   const [busy, setBusy] = useState(false);
@@ -220,6 +228,7 @@ function NewMatchModal({ players, onClose, onSubmit }) {
     try {
       await onSubmit({ p1_name: p1obj.name, p2_name: p2obj.name,
                        score1: parseInt(s1), score2: parseInt(s2) });
+      onSavePlayers && onSavePlayers(p1, p2);
       onClose();
     } catch (e) { setErr(e.message); }
     finally { setBusy(false); }
@@ -433,7 +442,7 @@ function Leaderboard({ players, matches }) {
               Матчей ещё не было
             </div>
           )}
-          {recent.map(m => (
+          {recent.map(raw => { const m = normalizeMatch(raw); return (
             <div key={m.id} style={{ padding:"14px 20px", borderBottom:"1px solid #E8EAEC" }}>
               <div style={{ fontSize:11, color:"#8C9BAB", marginBottom:8 }}>{m.date} · {m.time}</div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -454,7 +463,8 @@ function Leaderboard({ players, matches }) {
                 <DeltaBadge d={m.d2} right/>
               </div>
             </div>
-          ))}
+          );})
+}
         </div>
       </div>
     </div>
@@ -475,6 +485,7 @@ function NewPlayerModal({ onClose, onSubmit }) {
     setBusy(true); setErr("");
     try {
       await onSubmit(name.trim());
+      onSavePlayers && onSavePlayers(p1, p2);
       onClose();
     } catch (e) { setErr(e.message); }
     finally { setBusy(false); }
@@ -570,7 +581,7 @@ function History({ matches, onDelete }) {
           ))}</tr>
         </thead>
         <tbody>
-          {matches.map(m => (
+          {matches.map(raw => { const m = normalizeMatch(raw); return (
             <tr key={m.id} className="row-hover" style={{ borderBottom:"1px solid #E8EAEC" }}>
               <td style={td}>
                 <div style={{ fontSize:13, fontWeight:600 }}>{m.date}</div>
@@ -607,12 +618,12 @@ function History({ matches, onDelete }) {
                   style={delBtn} title="Удалить матч"><TrashIcon/></button>
               </td>
             </tr>
-          ))}
+          );})}
         </tbody>
       </table>
 
       <div className="mob-list">
-        {matches.map(m => (
+        {matches.map(raw => { const m = normalizeMatch(raw); return (
           <div key={m.id} style={{ padding:"14px 16px", borderBottom:"1px solid #E8EAEC" }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
               <span style={{ fontSize:11, color:"#8C9BAB" }}>{m.date} · {m.time}</span>
@@ -638,56 +649,38 @@ function History({ matches, onDelete }) {
               <DeltaBadge d={m.d2} name={m.p2.split(" ")[0]} right/>
             </div>
           </div>
-        ))}
+        );})}        
       </div>
     </div>
   );
 }
 
 // ── Players Page ───────────────────────────────────────────────────────────
-function PlayersPage({ players, onAdd, onDelete, onOpenAdd }) {
+function PlayersPage({ players, onDelete, onOpenAdd }) {
   const [confirmId,  setConfirmId]  = useState(null);
   const [delLoading, setDelLoading] = useState(false);
-
   async function handleDelete() {
-    setDelLoading(true);
-    await onDelete(confirmId);
-    setConfirmId(null);
-    setDelLoading(false);
+    setDelLoading(true); await onDelete(confirmId);
+    setConfirmId(null);  setDelLoading(false);
   }
-
   return (
     <div>
-      {confirmId && (
-        <ConfirmModal
-          text="Удалить игрока? Все его матчи и изменения рейтинга соперников тоже будут откатаны."
-          onConfirm={handleDelete}
-          onCancel={() => setConfirmId(null)}
-          loading={delLoading}
-        />
-      )}
+      {confirmId && <ConfirmModal
+        text="Удалить игрока? Все его матчи и изменения рейтинга соперников тоже будут откатаны."
+        onConfirm={handleDelete} onCancel={() => setConfirmId(null)} loading={delLoading}/>}
 
-      <div style={card}>
+      {/* Desktop */}
+      <div className="hide-mob" style={card}>
         <div style={ch}>
           <span style={{ fontSize:15, fontWeight:700 }}>Все игроки</span>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <span style={{ fontSize:13, color:"#8C9BAB" }}>{players.length} человек</span>
-            <button onClick={onOpenAdd}
-              style={{ ...btnPrimary, padding:"6px 14px", fontSize:13, fontWeight:700, borderRadius:8 }}>
-              + Добавить
-            </button>
-          </div>
+          <span style={{ fontSize:13, color:"#8C9BAB" }}>{players.length} человек</span>
         </div>
-        {players.length === 0 && (
-          <div style={{ padding:"28px 20px", color:"#8C9BAB", fontSize:14, textAlign:"center" }}>Нет игроков</div>
-        )}
+        {players.length === 0 && <div style={{ padding:"28px 20px", color:"#8C9BAB", fontSize:14, textAlign:"center" }}>Нет игроков</div>}
         {players.map((p,i) => {
-          const total = p.wins+p.losses;
-          const wr = total ? Math.round(p.wins/total*100) : 0;
+          const total = p.wins+p.losses, wr = total ? Math.round(p.wins/total*100) : 0;
           return (
-            <div key={p.id} className="row-hover"
-              style={{ display:"flex", alignItems:"center", gap:12,
-                padding:"12px 16px", borderBottom:"1px solid #E8EAEC", flexWrap:"wrap" }}>
+            <div key={p.id} className="row-hover desk-flex"
+              style={{ alignItems:"center", gap:12, padding:"12px 16px", borderBottom:"1px solid #E8EAEC" }}>
               <span style={{ fontWeight:700, fontSize:i<3?18:13, color:"#8C9BAB", minWidth:26, textAlign:"center" }}>
                 {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
               </span>
@@ -712,15 +705,273 @@ function PlayersPage({ players, onAdd, onDelete, onOpenAdd }) {
                 <div style={{ fontSize:15, fontWeight:700 }}>{wr}%</div>
                 <div style={{ fontSize:10, color:"#8C9BAB", textTransform:"uppercase" }}>WR</div>
               </div>
-              <button className="del-btn" onClick={() => setConfirmId(p.id)}
-                style={delBtn} title="Удалить игрока"><TrashIcon/></button>
+              <button className="del-btn" onClick={() => setConfirmId(p.id)} style={delBtn} title="Удалить"><TrashIcon/></button>
             </div>
           );
         })}
+        <div className="row-hover desk-flex" onClick={onOpenAdd}
+          style={{ alignItems:"center", gap:12, padding:"11px 16px", cursor:"pointer" }}>
+          <span style={{ minWidth:26 }}/>
+          <div style={{ width:36, height:36, borderRadius:"50%", border:"2px dashed #D0D5DD",
+            display:"flex", alignItems:"center", justifyContent:"center", color:"#C8D0DA", fontSize:20, flexShrink:0 }}>+</div>
+          <div style={{ fontSize:14, fontWeight:600, color:"#B0BAC9" }}>Добавить игрока...</div>
+        </div>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="mob-list">
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+          <span style={{ fontSize:16, fontWeight:800 }}>Все игроки</span>
+          <span style={{ fontSize:13, color:"#8C9BAB" }}>{players.length} чел.</span>
+        </div>
+        <div style={{ display:"grid", gap:10 }}>
+          {players.map((p,i) => {
+            const total = p.wins+p.losses, wr = total ? Math.round(p.wins/total*100) : 0;
+            return (
+              <div key={p.id} style={{ background:"#fff", borderRadius:14, border:"1px solid #E8EAEC",
+                padding:"14px 16px", boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+                  <span style={{ fontSize:i<3?22:14, fontWeight:700, color:"#8C9BAB", minWidth:30, textAlign:"center" }}>
+                    {i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}
+                  </span>
+                  <Avatar name={p.name} size={42}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:15, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{p.name}</div>
+                    <div style={{ marginTop:4 }}><RankPill rating={p.rating}/></div>
+                  </div>
+                  <button className="del-btn" onClick={() => setConfirmId(p.id)} style={delBtn}><TrashIcon/></button>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:7 }}>
+                  {[{v:p.rating,l:"Рейтинг",bg:"#FEF3E8",c:"#E8822A",w:800},
+                    {v:p.wins,  l:"Побед",  bg:"#E8F5E9",c:"#2E7D32",w:700},
+                    {v:p.losses,l:"Пораж.", bg:"#FFEBEE",c:"#C62828",w:700},
+                    {v:wr+"%",  l:"WR",     bg:"#F5F5F5",c:wr>=60?"#2E7D32":wr>=40?"#E8822A":"#C62828",w:700}
+                  ].map(s=>(
+                    <div key={s.l} style={{ textAlign:"center", padding:"9px 4px", background:s.bg, borderRadius:10 }}>
+                      <div style={{ fontSize:17, fontWeight:s.w, color:s.c, lineHeight:1 }}>{s.v}</div>
+                      <div style={{ fontSize:9, color:"#8C9BAB", textTransform:"uppercase", letterSpacing:.4, marginTop:3 }}>{s.l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <div onClick={onOpenAdd}
+            style={{ background:"#fff", borderRadius:14, border:"2px dashed #D0D5DD", padding:"16px",
+              cursor:"pointer", display:"flex", alignItems:"center", gap:12, color:"#B0BAC9" }}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor="#E8822A";e.currentTarget.style.background="#FFFAF6";}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="#D0D5DD";e.currentTarget.style.background="#fff";}}>
+            <div style={{ width:42, height:42, borderRadius:"50%", border:"2px dashed #D0D5DD",
+              display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, flexShrink:0 }}>+</div>
+            <span style={{ fontWeight:600, fontSize:15 }}>Добавить игрока...</span>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+// ── Compare Page ────────────────────────────────────────────────────────────
+function ComparePage({ players, matches }) {
+  const [p1id, setP1id] = useState("");
+  const [p2id, setP2id] = useState("");
+
+  const p1 = players.find(p => p.id === parseInt(p1id));
+  const p2 = players.find(p => p.id === parseInt(p2id));
+
+  // Only matches between these two players
+  const h2h = (p1 && p2) ? matches.filter(m =>
+    (m.p1 === p1.name && m.p2 === p2.name) ||
+    (m.p1 === p2.name && m.p2 === p1.name)
+  ) : [];
+
+  const total       = h2h.length;
+  const p1wins      = h2h.filter(m => m.winner === p1?.name).length;
+  const p2wins      = h2h.filter(m => m.winner === p2?.name).length;
+  const p1wr        = total ? Math.round(p1wins / total * 100) : null;
+  const p2wr        = total ? Math.round(p2wins / total * 100) : null;
+  const bothSelected = !!(p1 && p2);
+  const WC = "#E8822A"; const WB = "#FEF3E8";
+
+  // H2H stat rows: only H2H-derived values
+  const statRows = [
+    { label:"Побед",    v1:p1wins,                  v2:p2wins,
+      fmt: v => total ? v : "—",                    better: (a,b) => a > b },
+    { label:"Winrate",  v1:p1wr,                    v2:p2wr,
+      fmt: v => v !== null ? v+"%" : "—",           better: (a,b) => a > b },
+  ];
+
+  return (
+    <div>
+      {/* Selectors */}
+      <div style={{ ...card, marginBottom:14 }}>
+        <div style={ch}><span style={{ fontSize:15, fontWeight:700 }}>Сравнение — личные встречи</span></div>
+        <div style={{ padding:"16px 20px" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 28px 1fr", gap:10, alignItems:"end" }}>
+            <div>
+              <div style={labelSt}>Игрок 1</div>
+              <select style={{ ...selectSt, marginBottom:0 }} value={p1id} onChange={e=>setP1id(e.target.value)}>
+                <option value="">Выбрать...</option>
+                {players.filter(p=>p.id!==parseInt(p2id)).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div style={{ textAlign:"center", fontSize:13, fontWeight:800, color:"#C8D0DA", paddingBottom:12 }}>VS</div>
+            <div>
+              <div style={labelSt}>Игрок 2</div>
+              <select style={{ ...selectSt, marginBottom:0 }} value={p2id} onChange={e=>setP2id(e.target.value)}>
+                <option value="">Выбрать...</option>
+                {players.filter(p=>p.id!==parseInt(p1id)).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {!bothSelected && (
+        <div style={{ textAlign:"center", padding:"72px 20px" }}>
+          <div style={{ fontSize:52 }}>⚔️</div>
+          <div style={{ fontSize:15, color:"#8C9BAB", marginTop:12, lineHeight:1.6 }}>
+            Выберите двух игроков<br/>чтобы увидеть их личную статистику
+          </div>
+        </div>
+      )}
+
+      {bothSelected && (
+        <>
+          {/* VS header — shows names, ranks, overall rating as context */}
+          <div style={{ ...card, marginBottom:14 }}>
+            <div style={{ padding:"20px 16px", display:"grid",
+              gridTemplateColumns:"1fr 40px 1fr", gap:8, alignItems:"center" }}>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+                <Avatar name={p1.name} size={56}/>
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontWeight:700, fontSize:15 }}>{p1.name}</div>
+                  <div style={{ marginTop:3 }}><RankPill rating={p1.rating}/></div>
+                  <div style={{ fontSize:11, color:"#8C9BAB", marginTop:4 }}>{p1.rating} ELO</div>
+                </div>
+              </div>
+              <div style={{ textAlign:"center", fontSize:15, fontWeight:800, color:"#C8D0DA" }}>VS</div>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+                <Avatar name={p2.name} size={56}/>
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontWeight:700, fontSize:15 }}>{p2.name}</div>
+                  <div style={{ marginTop:3 }}><RankPill rating={p2.rating}/></div>
+                  <div style={{ fontSize:11, color:"#8C9BAB", marginTop:4 }}>{p2.rating} ELO</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* H2H stats — wins & WR only between these two */}
+          <div style={{ ...card, marginBottom:14 }}>
+            <div style={ch}>
+              <span style={{ fontSize:15, fontWeight:700 }}>Личная статистика</span>
+              <span style={{ fontSize:13, color:"#8C9BAB" }}>
+                {total} {total===1?"матч":total>=2&&total<=4?"матча":"матчей"} между ними
+              </span>
+            </div>
+
+            {total === 0 ? (
+              <div style={{ padding:"28px 20px", textAlign:"center" }}>
+                <div style={{ fontSize:28 }}>🤝</div>
+                <div style={{ fontSize:14, color:"#8C9BAB", marginTop:8 }}>
+                  Эти игроки ещё не встречались — побед, поражений и винрейта нет
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Big score */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 40px 1fr",
+                  alignItems:"center", padding:"20px 20px 0" }}>
+                  <div style={{ textAlign:"center" }}>
+                    <div style={{ fontSize:52, fontWeight:900, lineHeight:1,
+                      color:p1wins>p2wins?WC:"#1A1A1A" }}>{p1wins}</div>
+                    <div style={{ fontSize:11, color:"#8C9BAB", marginTop:4 }}>{p1.name.split(" ")[0]}</div>
+                  </div>
+                  <div style={{ textAlign:"center", fontSize:20, fontWeight:800, color:"#E8EAEC" }}>:</div>
+                  <div style={{ textAlign:"center" }}>
+                    <div style={{ fontSize:52, fontWeight:900, lineHeight:1,
+                      color:p2wins>p1wins?WC:"#1A1A1A" }}>{p2wins}</div>
+                    <div style={{ fontSize:11, color:"#8C9BAB", marginTop:4 }}>{p2.name.split(" ")[0]}</div>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div style={{ padding:"16px 20px 0" }}>
+                  <div style={{ height:8, background:"#F0F0F0", borderRadius:4, overflow:"hidden" }}>
+                    <div style={{ height:"100%", borderRadius:4, background:WC,
+                      width:(p1wins/total*100)+"%", transition:"width .4s ease" }}/>
+                  </div>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+                    <span style={{ fontSize:11, color:"#8C9BAB" }}>{p1.name.split(" ")[0]}: {p1wr}%</span>
+                    <span style={{ fontSize:11, color:"#8C9BAB" }}>{p2.name.split(" ")[0]}: {p2wr}%</span>
+                  </div>
+                </div>
+                {/* Stat rows */}
+                <div style={{ padding:"8px 0 0" }}>
+                  {statRows.map(s => {
+                    const w = total===0 ? 0 : s.better(s.v1,s.v2) ? 1 : s.better(s.v2,s.v1) ? -1 : 0;
+                    return (
+                      <div key={s.label} style={{ display:"grid", gridTemplateColumns:"1fr auto 1fr",
+                        padding:"11px 16px", borderTop:"1px solid #F5F5F5", alignItems:"center" }}>
+                        <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                          <span style={{ fontSize:18, fontWeight:800, padding:"5px 14px", borderRadius:10,
+                            background:w===1?WB:"transparent", color:w===1?WC:"#1A1A1A" }}>
+                            {s.fmt(s.v1)}
+                          </span>
+                        </div>
+                        <div style={{ fontSize:10, fontWeight:700, color:"#8C9BAB", textTransform:"uppercase",
+                          textAlign:"center", padding:"0 12px", letterSpacing:.5 }}>{s.label}</div>
+                        <div style={{ display:"flex", justifyContent:"flex-start" }}>
+                          <span style={{ fontSize:18, fontWeight:800, padding:"5px 14px", borderRadius:10,
+                            background:w===-1?WB:"transparent", color:w===-1?WC:"#1A1A1A" }}>
+                            {s.fmt(s.v2)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* H2H match history — same style as "Последние матчи" */}
+          {total > 0 && (
+            <div style={card}>
+              <div style={ch}>
+                <span style={{ fontSize:15, fontWeight:700 }}>История встреч</span>
+                <span style={{ fontSize:13, color:"#8C9BAB" }}>{total}</span>
+              </div>
+              {h2h.map(raw => {
+                const m = normalizeMatch(raw);
+                return (
+                  <div key={m.id} style={{ padding:"14px 20px", borderBottom:"1px solid #E8EAEC" }}>
+                    <div style={{ fontSize:11, color:"#8C9BAB", marginBottom:8 }}>{m.date} · {m.time}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <Avatar name={m.p1} size={26}/>
+                      <span style={{ flex:1, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                        fontWeight:m.winner===m.p1?700:400, color:m.winner===m.p1?"#2E7D32":"#8C9BAB" }}>{m.p1}</span>
+                      <span style={{ fontSize:15, fontWeight:800, color:"#1A1A1A", padding:"0 6px", flexShrink:0 }}>
+                        {m.s1}:{m.s2}
+                      </span>
+                      <span style={{ flex:1, textAlign:"right", fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                        fontWeight:m.winner===m.p2?700:400, color:m.winner===m.p2?"#2E7D32":"#8C9BAB" }}>{m.p2}</span>
+                      <Avatar name={m.p2} size={26}/>
+                    </div>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginTop:8 }}>
+                      <DeltaBadge d={m.d1}/>
+                      <DeltaBadge d={m.d2} right/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 
 function Empty({ text }) {
   return (
@@ -741,6 +992,8 @@ function App() {
   const [toast,     setToast]     = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [offline,   setOffline]   = useState(false);
+  const [savedP1,   setSavedP1]   = useState("");
+  const [savedP2,   setSavedP2]   = useState("");
 
   async function loadAll() {
     try {
@@ -800,6 +1053,7 @@ function App() {
     { id:"leaderboard", label:"Рейтинг", icon:"🏆" },
     { id:"history",     label:"История", icon:"📋" },
     { id:"players",     label:"Игроки",  icon:"👤" },
+    { id:"compare",     label:"Дуэль",   icon:"⚔️" },
   ];
 
   return (
@@ -856,6 +1110,7 @@ function App() {
             {view==="leaderboard" && <Leaderboard players={players} matches={matches}/>}
             {view==="history"     && <History matches={matches} onDelete={deleteMatch}/>}
             {view==="players"     && <PlayersPage players={players} onAdd={addPlayer} onDelete={deletePlayer} onOpenAdd={() => setShowPlayer(true)}/>}
+            {view==="compare"     && <ComparePage players={players} matches={matches}/>}
           </>
         )}
       </main>
@@ -883,7 +1138,9 @@ function App() {
       </nav>
 
       {showMatch && (
-        <NewMatchModal players={players} onClose={() => setShowMatch(false)} onSubmit={addMatch}/>
+        <NewMatchModal players={players} onClose={() => setShowMatch(false)} onSubmit={addMatch}
+          savedP1={savedP1} savedP2={savedP2}
+          onSavePlayers={(p1,p2) => { setSavedP1(p1); setSavedP2(p2); }}/>
       )}
 
       {showPlayer && (
