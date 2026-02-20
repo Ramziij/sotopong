@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    container_name: sotopong
+    ports:
+      - "8000:8000"
+    volumes:
+      - sotopong-data:/app/sotopong.db
+    restart: unless-stopped
+
+volumes:
+  sotopong-data:

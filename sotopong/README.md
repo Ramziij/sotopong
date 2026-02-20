@@ -36,6 +36,7 @@ python server.py
    - **Mac/Linux:** `ifconfig` или `ip addr` → inet
 
 2. Запусти сервер (он уже слушает `0.0.0.0`):
+
    ```bash
    python server.py
    ```
@@ -66,6 +67,21 @@ cd sotopong
 pip install -r requirements.txt
 python server.py
 ```
+
+### Вариант C — Docker Compose (локально или на VPS)
+
+```bash
+# собрать и запустить
+docker compose up -d --build
+
+# логи
+docker compose logs -f
+
+# остановить
+docker compose down
+```
+
+По умолчанию сервис будет доступен на `http://localhost:8000`. База (`sotopong.db`) хранится в Docker volume `sotopong-data`.
 
 Или через systemd для автозапуска:
 
@@ -105,11 +121,11 @@ sotopong/
 
 ## API endpoints
 
-| Метод | Путь | Описание |
-|-------|------|----------|
-| GET | `/api/players` | Список игроков |
-| POST | `/api/players` | Добавить игрока |
-| DELETE | `/api/players/{id}` | Удалить игрока |
-| GET | `/api/matches` | История матчей |
-| POST | `/api/matches` | Записать матч |
-| DELETE | `/api/matches/{id}` | Удалить матч |
+| Метод  | Путь                | Описание        |
+| ------ | ------------------- | --------------- |
+| GET    | `/api/players`      | Список игроков  |
+| POST   | `/api/players`      | Добавить игрока |
+| DELETE | `/api/players/{id}` | Удалить игрока  |
+| GET    | `/api/matches`      | История матчей  |
+| POST   | `/api/matches`      | Записать матч   |
+| DELETE | `/api/matches/{id}` | Удалить матч    |
