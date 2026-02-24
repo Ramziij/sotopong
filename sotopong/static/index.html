@@ -5,6 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>SotoPong 🏓</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTEiIGZpbGw9IiNFNTM5MzUiLz48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSI4IiBmaWxsPSIjRUY1MzUwIi8+PGxpbmUgeDE9IjEyIiB5MT0iMS41IiB4Mj0iMTIiIHkyPSIyMi41IiBzdHJva2U9IiNDNjI4MjgiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQ1Ii8+PGxpbmUgeDE9IjEuNSIgeTE9IjEyIiB4Mj0iMjIuNSIgeTI9IjEyIiBzdHJva2U9IiNDNjI4MjgiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQ1Ii8+PHJlY3QgeD0iMTkiIHk9IjE4LjUiIHdpZHRoPSIxMC41IiBoZWlnaHQ9IjQiIHJ4PSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAyNCAyMSkiIGZpbGw9IiM2RDRDNDEiLz48cmVjdCB4PSIxOS40IiB5PSIxOSIgd2lkdGg9IjkuNyIgaGVpZ2h0PSIzIiByeD0iMS41IiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAyNCAyMSkiIGZpbGw9IiM4RDZFNjMiLz48Y2lyY2xlIGN4PSIyNyIgY3k9IjUiIHI9IjQiIGZpbGw9IiNGRkZERTciIHN0cm9rZT0iI0Y5QTgyNSIgc3Ryb2tlLXdpZHRoPSIxLjIiLz48cGF0aCBkPSJNMjUgMy44IFEyNyAzIDI5IDQuNSIgc3Ryb2tlPSIjRjlBODI1IiBzdHJva2Utd2lkdGg9IjAuOSIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTEiIGZpbGw9IiNFNTM5MzUiLz48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSI4IiBmaWxsPSIjRUY1MzUwIi8+PGxpbmUgeDE9IjEyIiB5MT0iMS41IiB4Mj0iMTIiIHkyPSIyMi41IiBzdHJva2U9IiNDNjI4MjgiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQ1Ii8+PGxpbmUgeDE9IjEuNSIgeTE9IjEyIiB4Mj0iMjIuNSIgeTI9IjEyIiBzdHJva2U9IiNDNjI4MjgiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIwLjQ1Ii8+PHJlY3QgeD0iMTkiIHk9IjE4LjUiIHdpZHRoPSIxMC41IiBoZWlnaHQ9IjQiIHJ4PSIyIiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAyNCAyMSkiIGZpbGw9IiM2RDRDNDEiLz48cmVjdCB4PSIxOS40IiB5PSIxOSIgd2lkdGg9IjkuNyIgaGVpZ2h0PSIzIiByeD0iMS41IiB0cmFuc2Zvcm09InJvdGF0ZSg0NSAyNCAyMSkiIGZpbGw9IiM4RDZFNjMiLz48Y2lyY2xlIGN4PSIyNyIgY3k9IjUiIHI9IjQiIGZpbGw9IiNGRkZERTciIHN0cm9rZT0iI0Y5QTgyNSIgc3Ryb2tlLXdpZHRoPSIxLjIiLz48cGF0aCBkPSJNMjUgMy44IFEyNyAzIDI5IDQuNSIgc3Ryb2tlPSIjRjlBODI1IiBzdHJva2Utd2lkdGg9IjAuOSIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -599,7 +601,24 @@
     // ── Leaderboard ────────────────────────────────────────────────────────────
     function Leaderboard({ players, matches }) {
       if (!players.length) return <Empty text="Нет игроков — добавьте первого во вкладке «Игроки»" />;
-      const recent = matches.slice(0, 5);
+      const listRef = React.useRef(null);
+      const [visibleCount, setVisibleCount] = React.useState(5);
+      useEffect(() => {
+        const CARD_H = 92, HDR_H = 52, BOT = 20;
+        const calc = () => {
+          if (window.innerWidth <= 640) { setVisibleCount(10); return; }
+          if (!listRef.current) return;
+          const top = listRef.current.getBoundingClientRect().top + HDR_H;
+          const avail = window.innerHeight - top - BOT;
+          setVisibleCount(Math.max(1, Math.floor(avail / CARD_H)));
+        };
+        calc();
+        let ro;
+        if (window.ResizeObserver) { ro = new ResizeObserver(calc); ro.observe(document.body); }
+        window.addEventListener("resize", calc);
+        return () => { if (ro) ro.disconnect(); window.removeEventListener("resize", calc); };
+      }, []);
+      const recent = matches.slice(0, visibleCount);
       const ratingHist = React.useMemo(() => buildRatingHistory(players, matches), [players, matches]);
 
       return (
@@ -703,7 +722,7 @@
             </div>
 
             {/* Recent matches */}
-            <div style={card}>
+            <div style={card} ref={listRef}>
               <div style={ch}>
                 <span style={{ fontSize: 15, fontWeight: 700 }}>Последние матчи</span>
               </div>

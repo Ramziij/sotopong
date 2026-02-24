@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DB_PATH      = "sotopong.db"
+DB_PATH      = "/app/data/sotopong.db"
 STATIC_DIR   = "static"
 AVATARS_DIR  = "avatars"
 INITIAL_ELO  = 1000
