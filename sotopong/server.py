@@ -1,13 +1,12 @@
 """
 SotoPong — Backend v1.2 (2v2 + avatars)
-FastAPI + SQLite
-
-Запуск:
-  pip install fastapi uvicorn python-multipart
-  python server.py
+FastAPI + Postgres
 """
 
-import sqlite3, os, glob
+import os, glob, tempfile
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional
 
@@ -17,8 +16,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is required (PostgreSQL)")
+
 # ── Config ────────────────────────────────────────────────────────────────────
-DB_PATH      = "/app/data/sotopong.db"
+DB_PATH      = "/app/data/sotopong.db"  # legacy, unused on Postgres
 STATIC_DIR   = "static"
 AVATARS_DIR  = "avatars"
 INITIAL_ELO  = 1000
@@ -27,27 +30,52 @@ K_FACTOR     = 32
 app = FastAPI(title="SotoPong API", version="1.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 os.makedirs(AVATARS_DIR, exist_ok=True)
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
 
 # ── Database ──────────────────────────────────────────────────────────────────
+class DBConn:
+    def __init__(self, raw):
+        self.raw = raw
+    def execute(self, sql, params=()):
+        cur = self.raw.cursor(cursor_factory=RealDictCursor)
+        cur.execute(sql, params)
+        return cur
+    def commit(self):
+        return self.raw.commit()
+    def rollback(self):
+        return self.raw.rollback()
+    def close(self):
+        return self.raw.close()
+
+@contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    raw = psycopg2.connect(DATABASE_URL)
+    raw.autocommit = False
+    conn = DBConn(raw)
+    try:
+        yield conn
+        raw.commit()
+    except Exception:
+        raw.rollback()
+        raise
+    finally:
+        raw.close()
 
 def init_db():
     with get_db() as conn:
-        conn.executescript("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS players (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                id         SERIAL PRIMARY KEY,
                 name       TEXT NOT NULL UNIQUE,
                 rating     INTEGER NOT NULL DEFAULT 1000,
                 wins       INTEGER NOT NULL DEFAULT 0,
                 losses     INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS matches (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                id        SERIAL PRIMARY KEY,
                 p1        TEXT NOT NULL,
                 p2        TEXT NOT NULL,
                 p1b       TEXT,
@@ -57,20 +85,105 @@ def init_db():
                 winner    TEXT NOT NULL,
                 d1        INTEGER NOT NULL,
                 d2        INTEGER NOT NULL,
-                played_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+                played_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
         conn.commit()
     # Миграция: добавляем p1b/p2b если их нет
-    with get_db() as conn:
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(matches)").fetchall()]
-        if "p1b" not in cols:
-            conn.execute("ALTER TABLE matches ADD COLUMN p1b TEXT")
-        if "p2b" not in cols:
-            conn.execute("ALTER TABLE matches ADD COLUMN p2b TEXT")
-        conn.commit()
-
 init_db()
+
+
+# ── Admin import (SQLite -> Postgres) ─────────────────────────────────────────
+def require_admin(token: Optional[str]):
+    if not ADMIN_TOKEN:
+        raise HTTPException(500, "ADMIN_TOKEN not set")
+    if token != ADMIN_TOKEN:
+        raise HTTPException(403, "Forbidden")
+
+
+@app.post("/admin/import_sqlite")
+async def import_sqlite(token: str, file: UploadFile = File(...)):
+    """Upload a sqlite file and import data into Postgres (players, matches)."""
+    require_admin(token)
+    if not file.filename.endswith(".db") and not file.filename.endswith(".sqlite"):
+        raise HTTPException(400, "Файл должен быть sqlite .db")
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".db")
+    os.close(tmp_fd)
+    try:
+        content = await file.read()
+        with open(tmp_path, "wb") as f:
+            f.write(content)
+
+        # read from sqlite
+        import sqlite3
+        src = sqlite3.connect(tmp_path)
+        src.row_factory = sqlite3.Row
+        players = src.execute("SELECT * FROM players").fetchall()
+        matches = src.execute("SELECT * FROM matches").fetchall()
+
+        with get_db() as conn:
+            # ensure schema
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS players (
+                    id         SERIAL PRIMARY KEY,
+                    name       TEXT NOT NULL UNIQUE,
+                    rating     INTEGER NOT NULL DEFAULT 1000,
+                    wins       INTEGER NOT NULL DEFAULT 0,
+                    losses     INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS matches (
+                    id        SERIAL PRIMARY KEY,
+                    p1        TEXT NOT NULL,
+                    p2        TEXT NOT NULL,
+                    p1b       TEXT,
+                    p2b       TEXT,
+                    s1        INTEGER NOT NULL,
+                    s2        INTEGER NOT NULL,
+                    winner    TEXT NOT NULL,
+                    d1        INTEGER NOT NULL,
+                    d2        INTEGER NOT NULL,
+                    played_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+
+            for p in players:
+                conn.execute(
+                    """
+                    INSERT INTO players (id, name, rating, wins, losses, created_at)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        name=EXCLUDED.name,
+                        rating=EXCLUDED.rating,
+                        wins=EXCLUDED.wins,
+                        losses=EXCLUDED.losses
+                    """,
+                    (p["id"], p["name"], p["rating"], p["wins"], p["losses"], p["created_at"]))
+
+            for m in matches:
+                conn.execute(
+                    """
+                    INSERT INTO matches (id,p1,p2,p1b,p2b,s1,s2,winner,d1,d2,played_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (m["id"], m["p1"], m["p2"], m["p1b"], m["p2b"],
+                     m["s1"], m["s2"], m["winner"], m["d1"], m["d2"], m["played_at"]))
+
+            conn.execute("SELECT setval('players_id_seq', (SELECT COALESCE(MAX(id),1) FROM players))")
+            conn.execute("SELECT setval('matches_id_seq', (SELECT COALESCE(MAX(id),1) FROM matches))")
+            conn.commit()
+
+    finally:
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
+    return {"ok": True, "players": len(players), "matches": len(matches)}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def calc_elo(ra, rb, sa, sb):
@@ -126,22 +239,22 @@ def create_player(body: PlayerCreate):
         raise HTTPException(400, "Имя не может быть пустым")
     with get_db() as conn:
         try:
-            conn.execute("INSERT INTO players (name, rating, wins, losses) VALUES (?, ?, 0, 0)", (name, INITIAL_ELO))
+            conn.execute("INSERT INTO players (name, rating, wins, losses) VALUES (%s, %s, 0, 0)", (name, INITIAL_ELO))
             conn.commit()
-        except sqlite3.IntegrityError:
+        except Exception:
             raise HTTPException(409, f"Игрок «{name}» уже существует")
-        row = conn.execute("SELECT * FROM players WHERE name = ?", (name,)).fetchone()
+        row = conn.execute("SELECT * FROM players WHERE name = %s", (name,)).fetchone()
     return player_to_dict(row)
 
 @app.delete("/api/players/{player_id}")
 def delete_player(player_id: int):
     with get_db() as conn:
-        player = conn.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        player = conn.execute("SELECT * FROM players WHERE id = %s", (player_id,)).fetchone()
         if not player:
             raise HTTPException(404, "Игрок не найден")
         name = player["name"]
         rows = conn.execute(
-            "SELECT * FROM matches WHERE p1=? OR p2=? OR p1b=? OR p2b=?",
+            "SELECT * FROM matches WHERE p1=%s OR p2=%s OR p1b=%s OR p2b=%s",
             (name, name, name, name)
         ).fetchall()
         for row in rows:
@@ -156,10 +269,10 @@ def delete_player(player_id: int):
             for pname, delta, won in pairs:
                 if pname and pname != name:
                     conn.execute(
-                        "UPDATE players SET rating=rating-?, wins=wins-?, losses=losses-? WHERE name=?",
+                        "UPDATE players SET rating=rating-%s, wins=wins-%s, losses=losses-%s WHERE name=%s",
                         (delta, 1 if won else 0, 0 if won else 1, pname))
-        conn.execute("DELETE FROM matches WHERE p1=? OR p2=? OR p1b=? OR p2b=?", (name, name, name, name))
-        conn.execute("DELETE FROM players WHERE id = ?", (player_id,))
+        conn.execute("DELETE FROM matches WHERE p1=%s OR p2=%s OR p1b=%s OR p2b=%s", (name, name, name, name))
+        conn.execute("DELETE FROM players WHERE id = %s", (player_id,))
         conn.commit()
     # Удаляем аватар
     av = find_avatar(player_id)
@@ -172,7 +285,7 @@ def delete_player(player_id: int):
 @app.post("/api/players/{player_id}/avatar")
 async def upload_avatar(player_id: int, file: UploadFile = File(...)):
     with get_db() as conn:
-        if not conn.execute("SELECT id FROM players WHERE id=?", (player_id,)).fetchone():
+        if not conn.execute("SELECT id FROM players WHERE id=%s", (player_id,)).fetchone():
             raise HTTPException(404, "Игрок не найден")
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(400, "Файл должен быть изображением")
@@ -217,7 +330,7 @@ def create_match(body: MatchCreate):
     is_2v2 = bool(body.p1b_name and body.p2b_name)
     with get_db() as conn:
         def gp(name):
-            p = conn.execute("SELECT * FROM players WHERE name=?", (name,)).fetchone()
+            p = conn.execute("SELECT * FROM players WHERE name=%s", (name,)).fetchone()
             if not p: raise HTTPException(404, f"Игрок «{name}» не найден")
             return p
         pl1 = gp(body.p1_name); pl2 = gp(body.p2_name)
@@ -230,29 +343,30 @@ def create_match(body: MatchCreate):
                                     body.score1, body.score2)
             for pname, delta, won in [(body.p1_name, d1, team1_won), (body.p1b_name, d1, team1_won),
                                        (body.p2_name, d2, not team1_won), (body.p2b_name, d2, not team1_won)]:
-                conn.execute("UPDATE players SET rating=rating+?, wins=wins+?, losses=losses+? WHERE name=?",
+                conn.execute("UPDATE players SET rating=rating+%s, wins=wins+%s, losses=losses+%s WHERE name=%s",
                              (delta, 1 if won else 0, 0 if won else 1, pname))
             cur = conn.execute(
-                "INSERT INTO matches (p1,p2,p1b,p2b,s1,s2,winner,d1,d2,played_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','localtime'))",
+                "INSERT INTO matches (p1,p2,p1b,p2b,s1,s2,winner,d1,d2,played_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()) RETURNING id",
                 (body.p1_name, body.p2_name, body.p1b_name, body.p2b_name, body.score1, body.score2, winner, d1, d2))
         else:
             if pl1["id"] == pl2["id"]: raise HTTPException(400, "Нельзя играть против себя")
             new_r1, new_r2, d1, d2 = calc_elo(pl1["rating"], pl2["rating"], body.score1, body.score2)
-            conn.execute("UPDATE players SET rating=?, wins=wins+?, losses=losses+? WHERE name=?",
+            conn.execute("UPDATE players SET rating=%s, wins=wins+%s, losses=losses+%s WHERE name=%s",
                          (new_r1, 1 if team1_won else 0, 0 if team1_won else 1, body.p1_name))
-            conn.execute("UPDATE players SET rating=?, wins=wins+?, losses=losses+? WHERE name=?",
+            conn.execute("UPDATE players SET rating=%s, wins=wins+%s, losses=losses+%s WHERE name=%s",
                          (new_r2, 0 if team1_won else 1, 1 if team1_won else 0, body.p2_name))
             cur = conn.execute(
-                "INSERT INTO matches (p1,p2,p1b,p2b,s1,s2,winner,d1,d2,played_at) VALUES (?,?,NULL,NULL,?,?,?,?,?,datetime('now','localtime'))",
+                "INSERT INTO matches (p1,p2,p1b,p2b,s1,s2,winner,d1,d2,played_at) VALUES (%s,%s,NULL,NULL,%s,%s,%s,%s,%s,NOW()) RETURNING id",
                 (body.p1_name, body.p2_name, body.score1, body.score2, winner, d1, d2))
-        match_id = cur.lastrowid
+        match_row = cur.fetchone()
+        match_id = match_row["id"] if match_row else None
         conn.commit()
-        return fmt_match(dict(conn.execute("SELECT * FROM matches WHERE id=?", (match_id,)).fetchone()))
+        return fmt_match(dict(conn.execute("SELECT * FROM matches WHERE id=%s", (match_id,)).fetchone()))
 
 @app.delete("/api/matches/{match_id}")
 def delete_match(match_id: int):
     with get_db() as conn:
-        match = conn.execute("SELECT * FROM matches WHERE id=?", (match_id,)).fetchone()
+        match = conn.execute("SELECT * FROM matches WHERE id=%s", (match_id,)).fetchone()
         if not match: raise HTTPException(404, "Матч не найден")
         m = dict(match)
         is_2v2 = bool(m.get("p1b"))
@@ -263,9 +377,9 @@ def delete_match(match_id: int):
                  [(m["p1"], m["d1"], m["winner"] == m["p1"]),
                   (m["p2"], m["d2"], m["winner"] == m["p2"])])
         for pname, delta, won in pairs:
-            conn.execute("UPDATE players SET rating=rating-?, wins=wins-?, losses=losses-? WHERE name=?",
+            conn.execute("UPDATE players SET rating=rating-%s, wins=wins-%s, losses=losses-%s WHERE name=%s",
                          (delta, 1 if won else 0, 0 if won else 1, pname))
-        conn.execute("DELETE FROM matches WHERE id=?", (match_id,))
+        conn.execute("DELETE FROM matches WHERE id=%s", (match_id,))
         conn.commit()
     return {"ok": True}
 
